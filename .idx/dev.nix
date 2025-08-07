@@ -1,19 +1,27 @@
-# To learn more about how to use Nix to configure your environment
-# see: https://developers.google.com/idx/guides/customize-idx-env
+# This is a Nix configuration file.
+# It is used by Firebase Studio to set up the development environment.
+# It is based on the Nix package manager.
+#
+# You can find more information about Nix here:
+# https://nixos.org/
 { pkgs, ... }: {
-  # Which nixpkgs channel to use.
+  # The channel determines which version of the Nix package collection is used.
+  # "stable-24.05" is the latest stable channel.
+  # "unstable" is the latest unstable channel.
   channel = "stable-24.05"; # or "unstable"
-  # Use https://search.nixos.org/packages to find packages
+
+  # A list of packages to install from the specified channel.
+  # You can search for packages on https://search.nixos.org/packages
   packages = [
-    # python311Full is required for venv support
-    pkgs.python311Full
+    # Create a Python environment with aiogram
+    (pkgs.python3.withPackages (ps: [
+      ps.aiogram
+      # You can add other python packages here, e.g. ps.requests
+    ]))
   ];
-  # Sets environment variables in the workspace
+
+  # A set of environment variables to define within the workspace.
   env = {
-    # This ensures that tools use the Python from your virtual environment
-    PATH = "$PWD/.venv/bin:$PATH";
-    # Helps the VS Code Python extension find your virtual environment
-    VIRTUAL_ENV = "$PWD/.venv";
     # IMPORTANT: Replace this with your actual Telegram token
     TELEGRAM_API_TOKEN = "YOUR_TELEGRAM_API_TOKEN_HERE";
   };
@@ -28,17 +36,9 @@
     };
     # Workspace lifecycle hooks
     workspace = {
-      # Runs when a workspace is first created
-      onCreate = {
-        # Create a virtual environment named .venv
-        create-venv = "python -m venv .venv";
-        # Install dependencies from requirements.txt into the virtual environment.
-        # The PATH environment variable ensures we use the correct pip.
-        pip-install = "pip install -r requirements.txt";
-      };
-      # Runs when the workspace is (re)started
+      # onStart runs every time the workspace is (re)started
       onStart = {
-        # The PATH environment variable ensures we use the correct python interpreter.
+        # Start the bot
         start-bot = "python bot.py";
       };
     };

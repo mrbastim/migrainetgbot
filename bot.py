@@ -39,8 +39,10 @@ async def send_welcome(message: types.Message):
 @dp.callback_query()
 async def send_random_value(callback: types.CallbackQuery):
     if callback.data == "button_1_pressed":
+        logging.info("Нажата кнопка 1")
         await callback.message.answer("Вы нажали на кнопку 1.")
     elif callback.data == "button_2_pressed":
+        logging.info("Нажата кнопка 2")
         await callback.message.answer("Вы нажали на кнопку 2.")
     await callback.answer()
 
