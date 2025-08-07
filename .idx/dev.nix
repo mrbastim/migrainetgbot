@@ -13,6 +13,8 @@
   # A list of packages to install from the specified channel.
   # You can search for packages on https://search.nixos.org/packages
   packages = [
+    # Add sqlite to the environment
+    pkgs.sqlite
     # Create a Python environment with aiogram
     (pkgs.python3.withPackages (ps: [
       ps.aiogram

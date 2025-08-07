@@ -6,6 +6,7 @@ import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from keyboards import keyboard_main
+import database
 # Включаем логирование, чтобы не пропустить важные сообщения
 logging.basicConfig(level=logging.INFO)
 
@@ -29,7 +30,6 @@ async def send_welcome(message: types.Message):
     """
     Этот хэндлер будет вызываться при отправке команды /start
     """
-    
     await message.answer("Привет! Я Мигребот. Помогаю вести дневник мигреней", reply_markup=keyboard_main)
 
 # Хэндлер на нажатие инлайн-кнопок
@@ -45,6 +45,7 @@ async def send_random_value(callback: types.CallbackQuery):
 
 # Запуск процесса поллинга новых апдейтов
 async def main():
+    database.init_db()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
