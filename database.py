@@ -8,17 +8,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
+            strength INTEGER NOT NULL,
             text TEXT NOT NULL
         )
     ''')
     conn.commit()
     conn.close()
 
-def add_note(user_id, text):
+def add_note(user_id, strength, text):
     """Adds a note to the database for a given user."""
     conn = sqlite3.connect('notes.db')
     cur = conn.cursor()
-    cur.execute("INSERT INTO notes (user_id, text) VALUES (?, ?)", (user_id, text))
+    cur.execute("INSERT INTO notes (user_id, strength, text) VALUES (?, ?, ?)", (user_id, strength, text))
     conn.commit()
     conn.close()
 
@@ -26,7 +27,7 @@ def get_notes(user_id):
     """Retrieves all notes for a given user."""
     conn = sqlite3.connect('notes.db')
     cur = conn.cursor()
-    cur.execute("SELECT id, text FROM notes WHERE user_id = ?", (user_id,))
+    cur.execute("SELECT id, strength, text FROM notes WHERE user_id = ?", (user_id,))
     notes = cur.fetchall()
     conn.close()
     return notes

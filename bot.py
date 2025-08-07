@@ -7,6 +7,8 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from keyboards import keyboard_main
 import database
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 # Включаем логирование, чтобы не пропустить важные сообщения
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +19,15 @@ API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
 if not API_TOKEN:
     logging.critical("Не был введен API ключ Телеграма")
     raise ValueError("Необходимо установить переменную окружения TELEGRAM_API_TOKEN")
+
+class Form(StatesGroup):
+    new_note = State()
+    list_notes = State()
+
+class NewNote_states(StatesGroup):
+    strength = State()
+    text = State()
+    to_database = State()
 
 
 # Объект бота
@@ -37,11 +48,18 @@ async def send_welcome(message: types.Message):
 async def send_random_value(callback: types.CallbackQuery):
     if callback.data == "button_new_note":
         logging.info("Нажата кнопка 'Новая запись'")
-        await callback.message.answer("Вы нажали на кнопку 1.")
+        await Form.new_note.set()
     elif callback.data == "button_list_notes":
         logging.info("Нажата кнопка 'Посмотреть записи'")
-        await callback.message.answer("Вы нажали на кнопку 2.")
+        await Form.list_notes.set()
     await callback.answer()
+
+@dp.message_handler(state=Form.new_note)
+async def process_new_note(message: types.Message, state: FSMContext):
+    await message.reply("Давай добавим новую запись. \nНа сколько сильно болит голова по 10 бальной шкале?")
+
+@dp.message_handler(state=NewNote_states.strength)
+
 
 # Запуск процесса поллинга новых апдейтов
 async def main():
