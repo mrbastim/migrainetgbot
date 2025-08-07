@@ -5,8 +5,7 @@ import os
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
+from keyboards import keyboard_main
 # Включаем логирование, чтобы не пропустить важные сообщения
 logging.basicConfig(level=logging.INFO)
 
@@ -15,6 +14,7 @@ API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
 
 # Проверяем, что токен доступен
 if not API_TOKEN:
+    logging.critical("Не был введен API ключ Телеграма")
     raise ValueError("Необходимо установить переменную окружения TELEGRAM_API_TOKEN")
 
 
@@ -29,20 +29,17 @@ async def send_welcome(message: types.Message):
     """
     Этот хэндлер будет вызываться при отправке команды /start
     """
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Кнопка 1", callback_data="button_1_pressed")],
-        [InlineKeyboardButton(text="Кнопка 2", callback_data="button_2_pressed")],
-    ])
-    await message.answer("Привет! Я бот на aiogram.", reply_markup=keyboard)
+    
+    await message.answer("Привет! Я Мигребот. Помогаю вести дневник мигреней", reply_markup=keyboard_main)
 
 # Хэндлер на нажатие инлайн-кнопок
 @dp.callback_query()
 async def send_random_value(callback: types.CallbackQuery):
-    if callback.data == "button_1_pressed":
-        logging.info("Нажата кнопка 1")
+    if callback.data == "button_new_note":
+        logging.info("Нажата кнопка 'Новая запись'")
         await callback.message.answer("Вы нажали на кнопку 1.")
-    elif callback.data == "button_2_pressed":
-        logging.info("Нажата кнопка 2")
+    elif callback.data == "button_list_notes":
+        logging.info("Нажата кнопка 'Посмотреть записи'")
         await callback.message.answer("Вы нажали на кнопку 2.")
     await callback.answer()
 
