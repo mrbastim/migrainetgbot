@@ -18,14 +18,13 @@
     # Create a Python environment with aiogram
     (pkgs.python3.withPackages (ps: [
       ps.aiogram
-      # You can add other python packages here, e.g. ps.requests
     ]))
   ];
 
   # A set of environment variables to define within the workspace.
   env = {
     # IMPORTANT: Replace this with your actual Telegram token
-    TELEGRAM_API_TOKEN = "YOUR_TELEGRAM_API_TOKEN_HERE";
+    TELEGRAM_API_TOKEN = "8488549531:AAEh0HmvLiNIG9o7qqxONup2lZPCwZmsN60";
   };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
