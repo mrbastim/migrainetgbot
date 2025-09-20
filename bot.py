@@ -2,6 +2,10 @@ import asyncio
 import logging
 import os
 import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+import tempfile
+from contextlib import contextmanager
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
@@ -11,10 +15,18 @@ from keyboards import (
     keyboard_list_notes,
     kb_year_months,
     kb_days,
-    kb_after_notes
+    kb_after_notes,
+    kb_export_root,
+    kb_export_years,
+    kb_export_months,
+    kb_export_format
 )
 from database import init_db, add_note, get_notes, delete_note
 
+# Загрузка .env если есть
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
 BOT_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
 offset_timezone = datetime.timezone(datetime.timedelta(hours=3), name='MSK') 
 
@@ -23,6 +35,8 @@ logging.basicConfig(level=logging.INFO, filename="logfile.log",filemode="w",
                     format="%(asctime)s %(levelname)s %(message)s")
 
 # Инициализация бота и диспетчера
+if not BOT_TOKEN:
+    raise RuntimeError("Не найден TELEGRAM_API_TOKEN в переменных окружения или .env файле.")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -95,6 +109,80 @@ def format_notes_for_days(structure, year: int, month: int, days: list[int]) -> 
     return "".join(parts)
 
 # ================= Конец вспомогательных функций ====================
+
+def export_notes_text(user_id: int) -> str:
+    notes = get_notes(user_id)
+    if not notes:
+        return "Нет записей."
+    lines = ["Экспорт заметок", "=================", ""]
+    for note in notes:
+        lines.append(f"ID: {note[0]}")
+        lines.append(f"Дата: {note[3]}")
+        lines.append(f"Сила: {note[1]}")
+        lines.append(f"Комментарий: {note[2]}")
+        lines.append("")
+    return "\n".join(lines)
+
+def export_notes_filtered_text(user_id: int, scope: str, year: int | None = None, month: int | None = None) -> str:
+    notes = get_notes(user_id)
+    if not notes:
+        return "Нет записей."
+    filtered = []
+    for n in notes:
+        dt = _parse_note_datetime(n[3])
+        if scope == 'all':
+            filtered.append(n)
+        elif scope == 'year' and year == dt.year:
+            filtered.append(n)
+        elif scope == 'month' and year == dt.year and month == dt.month:
+            filtered.append(n)
+    if not filtered:
+        return "Нет записей."
+    lines = ["Экспорт заметок", f"Область: {scope} {year or ''} {month or ''}", "=================", ""]
+    for note in filtered:
+        lines.append(f"ID: {note[0]}")
+        lines.append(f"Дата: {note[3]}")
+        lines.append(f"Сила: {note[1]}")
+        lines.append(f"Комментарий: {note[2]}")
+        lines.append("")
+    return "\n".join(lines)
+
+@contextmanager
+def tmp_file(suffix: str):
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        yield path
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+def find_cyr_font():
+    """Ищет ttf шрифт с поддержкой кириллицы среди типичных Windows шрифтов и локальной папки fonts/. 
+    Возвращает (name, path) или None."""
+    candidates_fixed = [
+        'C:/Windows/Fonts/arial.ttf',
+        'C:/Windows/Fonts/Arial.ttf',
+        'C:/Windows/Fonts/segoeui.ttf',
+        'C:/Windows/Fonts/tahoma.ttf',
+        'C:/Windows/Fonts/verdana.ttf',
+        'C:/Windows/Fonts/calibri.ttf',
+        'C:/Windows/Fonts/times.ttf',
+        'C:/Windows/Fonts/timesbd.ttf',
+        'C:/Windows/Fonts/DejaVuSans.ttf',
+        'C:/Windows/Fonts/DejaVuSansCondensed.ttf'
+    ]
+    fonts_dir = Path(__file__).parent / 'fonts'
+    dynamic = []
+    if fonts_dir.exists():
+        for p in fonts_dir.glob('*.ttf'):
+            dynamic.append(str(p))
+    for p in dynamic + candidates_fixed:
+        if os.path.exists(p):
+            # имя шрифта берём из имени файла без расширения, убирая пробелы
+            name = Path(p).stem.replace(' ', '_')
+            return name, p
+    return None
 
 # Хэндлер на команду /start
 @dp.message(Command("start"))
@@ -187,7 +275,29 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         page = max(0, min(page, total_pages-1))
         days_slice = slice_days(days, page)
         await state.update_data(current_day_page=page)
-        await callback.message.edit_text(f"{month_title(month, year)}\nДни (стр {page+1}/{total_pages}):", reply_markup=kb_days(year, month, days_slice, page, total_pages))
+        text = format_notes_for_days(structure, year, month, days_slice)
+        header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
+        await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_pages))
+        await callback.answer()
+        return
+
+    # Быстрая навигация по неделям (страницам) из режима просмотра
+    if data.startswith("page_week:"):
+        _, year_str, month_str, page_str = data.split(":")
+        year = int(year_str); month = int(month_str); page = int(page_str)
+        st = await state.get_data()
+        structure = st.get("view_structure")
+        days = available_days(structure, year, month)
+        total_pages = total_day_pages(days)
+        page = max(0, min(page, total_pages-1))
+        days_slice = slice_days(days, page)
+        await state.update_data(current_day_page=page)
+        text = format_notes_for_days(structure, year, month, days_slice)
+        header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
+        await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_pages))
+        await callback.answer(); return
+
+    if data == "noop":
         await callback.answer()
         return
 
@@ -222,6 +332,8 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         text = format_notes_for_days(structure, year, month, days_slice)
         header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
         await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_day_pages(days)))
+        # Дополнительная клавиатура действий (экспорт / удаление / главное меню)
+        await callback.message.answer("Действия:", reply_markup=kb_after_notes())
         await callback.answer()
         return
 
@@ -230,6 +342,171 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("Выберите действие.", reply_markup=keyboard_main)
         await callback.answer()
         return
+
+    if data == "export_open_filter":
+        await callback.message.answer("Область экспорта:", reply_markup=kb_export_root())
+        await callback.answer(); return
+
+    # Экспорт TXT
+    if data == "export_txt":
+        txt = export_notes_text(user_id)
+        if txt.strip() == "Нет записей.":
+            await callback.message.answer("Нет записей для экспорта.")
+            await callback.answer(); return
+        with tmp_file('.txt') as path:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(txt)
+            await callback.message.answer_document(types.FSInputFile(path, filename='notes_export.txt'))
+        await callback.answer(); return
+
+    # Экспорт PDF (попытка через reportlab)
+    if data == "export_pdf":
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+        except ImportError:
+            await callback.message.answer("Модуль reportlab не установлен. Установите: pip install reportlab")
+            await callback.answer(); return
+        txt = export_notes_text(user_id)
+        if txt.strip() == "Нет записей.":
+            await callback.message.answer("Нет записей для экспорта.")
+            await callback.answer(); return
+        with tmp_file('.pdf') as path:
+            c = canvas.Canvas(path, pagesize=A4)
+            width, height = A4
+            y = height - 40
+            max_chars = 100
+            font_info = find_cyr_font()
+            font_name = 'Helvetica'
+            if font_info:
+                try:
+                    pdfmetrics.registerFont(TTFont(font_info[0], font_info[1]))
+                    font_name = font_info[0]
+                except Exception:
+                    pass
+            c.setFont(font_name, 11)
+            for line in txt.split('\n'):
+                # перенос длинных строк
+                parts = [line[i:i+max_chars] for i in range(0, len(line), max_chars)] or ['']
+                for part in parts:
+                    if y < 50:
+                        c.showPage(); y = height - 40
+                        c.setFont(font_name, 11)
+                    c.drawString(40, y, part)
+                    y -= 14
+            c.save()
+            await callback.message.answer_document(types.FSInputFile(path, filename='notes_export.pdf'))
+        await callback.answer(); return
+
+    # ===== Расширенный экспорт с фильтром =====
+    if data == 'export_scope:all':
+        await callback.message.answer("Выберите формат:", reply_markup=kb_export_format('all'))
+        await callback.answer(); return
+    if data == 'export_scope:year':
+        structure, years = group_notes_structure(user_id)
+        if not years:
+            await callback.message.answer("Нет данных.")
+            await callback.answer(); return
+        await callback.message.answer("Выберите год:", reply_markup=kb_export_years(years))
+        await callback.answer(); return
+    if data == 'export_scope:month':
+        structure, years = group_notes_structure(user_id)
+        if not years:
+            await callback.message.answer("Нет данных.")
+            await callback.answer(); return
+        await callback.message.answer("Сначала выберите год:", reply_markup=kb_export_years(years))
+        await callback.answer(); return
+    if data == 'export_cancel':
+        await callback.message.answer("Экспорт отменён.")
+        await callback.answer(); return
+    if data == 'export_back_root':
+        await callback.message.answer("Область экспорта:", reply_markup=kb_export_root())
+        await callback.answer(); return
+    if data == 'export_back_years':
+        structure, years = group_notes_structure(user_id)
+        await callback.message.answer("Выберите год:", reply_markup=kb_export_years(years))
+        await callback.answer(); return
+    if data.startswith('export_year:'):
+        _, year_str = data.split(':')
+        year = int(year_str)
+        # Если сценарий был "по месяцу", дадим выбор месяцев
+        # Определить сценарий: просто повторно спросим выбор формата/или месяцев.
+        structure, years = group_notes_structure(user_id)
+        months = available_months(structure, year)
+        if months:
+            await callback.message.answer("Выберите месяц или формат для всего года:", reply_markup=kb_export_months(year, months))
+            # Также отдельно можно предложить форматы для года
+            await callback.message.answer("Формат для года целиком:", reply_markup=kb_export_format('year', year))
+        else:
+            await callback.message.answer("Нет месяцев в этом году.")
+        await callback.answer(); return
+    if data.startswith('export_month:'):
+        _, year_str, month_str = data.split(':')
+        year = int(year_str); month = int(month_str)
+        await callback.message.answer("Выберите формат:", reply_markup=kb_export_format('month', year, month))
+        await callback.answer(); return
+    if data.startswith('export_make:'):
+        parts = data.split(':')
+        # export_make : fmt : scope (: year) (: month)
+        fmt = parts[1]
+        scope = parts[2]
+        year = int(parts[3]) if len(parts) > 3 else None
+        month = int(parts[4]) if len(parts) > 4 else None
+        txt = export_notes_filtered_text(user_id, scope, year, month)
+        if txt.strip() == 'Нет записей.':
+            await callback.message.answer("Нет записей под выбранный фильтр.")
+            await callback.answer(); return
+        if fmt == 'txt':
+            with tmp_file('.txt') as path:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(txt)
+                fname = 'notes_export.txt'
+                if scope == 'year' and year:
+                    fname = f'notes_{year}.txt'
+                if scope == 'month' and year and month:
+                    fname = f'notes_{year}_{month}.txt'
+                await callback.message.answer_document(types.FSInputFile(path, filename=fname))
+        elif fmt == 'pdf':
+            try:
+                from reportlab.lib.pagesizes import A4
+                from reportlab.pdfgen import canvas
+                from reportlab.pdfbase import pdfmetrics
+                from reportlab.pdfbase.ttfonts import TTFont
+            except ImportError:
+                await callback.message.answer("reportlab не установлен.")
+                await callback.answer(); return
+            with tmp_file('.pdf') as path:
+                c = canvas.Canvas(path, pagesize=A4)
+                width, height = A4
+                y = height - 40
+                max_chars = 100
+                font_info = find_cyr_font()
+                font_name = 'Helvetica'
+                if font_info:
+                    try:
+                        pdfmetrics.registerFont(TTFont(font_info[0], font_info[1]))
+                        font_name = font_info[0]
+                    except Exception:
+                        pass
+                c.setFont(font_name, 11)
+                for line in txt.split('\n'):
+                    parts_line = [line[i:i+max_chars] for i in range(0, len(line), max_chars)] or ['']
+                    for pl in parts_line:
+                        if y < 50:
+                            c.showPage(); y = height - 40
+                            c.setFont(font_name, 11)
+                        c.drawString(40, y, pl)
+                        y -= 14
+                c.save()
+                fname = 'notes_export.pdf'
+                if scope == 'year' and year:
+                    fname = f'notes_{year}.pdf'
+                if scope == 'month' and year and month:
+                    fname = f'notes_{year}_{month}.pdf'
+                await callback.message.answer_document(types.FSInputFile(path, filename=fname))
+        await callback.answer(); return
 
     # Удаление: запускаем ту же навигацию, но с префиксом режима удаления
     if data == "button_delete_note":
