@@ -12,11 +12,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from keyboards import (
     keyboard_main,
-    keyboard_list_notes,
-    keyboard_strength,
+    keyboard_cancel,
     kb_year_months,
     kb_days,
-    kb_after_notes,
     kb_export_root,
     kb_export_years,
     kb_export_months,
@@ -48,13 +46,13 @@ class AddNoteStates(StatesGroup):
 
 class DeleteNoteStates(StatesGroup):
     waiting_for_id = State()
-    delete_note_by_id = State()
 
 # ================= Вспомогательные функции для навигации заметок ====================
 MONTH_NAMES_RU = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
     "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
 ]
+WEEKDAY_ABBR_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 def _parse_note_datetime(dt_str: str) -> datetime.datetime:
     """Парсит строку даты из БД формата '%d.%m.%Y %H:%M'."""
@@ -106,7 +104,14 @@ def format_notes_for_days(structure, year: int, month: int, days: list[int]) -> 
     for d in days:
         notes = structure[year][month][d]
         for note in notes:
-            parts.append(f"---{note[0]}---\nДата: {note[3]}\nСила боли: {note[1]}\nКомментарий: {note[2]}\n")
+            dt = _parse_note_datetime(note[3])
+            dow = WEEKDAY_ABBR_RU[dt.weekday()]
+            parts.append(
+                f"---id:{note[0]}---\n"
+                f"Дата: {dt.strftime('%d.%m.%Y %H:%M')} ({dow})\n"
+                f"Сила боли: {note[1]}\n"
+                f"Комментарий: {note[2]}\n"
+            )
     return "".join(parts)
 
 def format_notes_for_day(structure, year: int, month: int, day: int) -> str:
@@ -116,10 +121,26 @@ def format_notes_for_day(structure, year: int, month: int, day: int) -> str:
     parts = []
     notes = structure[year][month][day]
     for note in notes:
-        parts.append(f"---{note[0]}---\nДата: {note[3]}\nСила боли: {note[1]}\nКомментарий: {note[2]}\n")
+        dt = _parse_note_datetime(note[3])
+        parts.append(
+            f"---id:{note[0]}---\n"
+            f"Дата: {dt.strftime('%d.%m.%Y %H:%M')}\n"
+            f"Сила боли: {note[1]}\n"
+            f"Комментарий: {note[2]}\n"
+        )
     return "".join(parts)
 
 # ================= Конец вспомогательных функций ====================
+
+def fmt_date(y: int, m: int, d: int) -> str:
+    return f"{d:02d}.{m:02d}.{y}"
+
+def fmt_date_dow(y: int, m: int, d: int) -> str:
+    try:
+        dt = datetime.date(y, m, d)
+        return f"{d:02d}.{m:02d}.{y} ({WEEKDAY_ABBR_RU[dt.weekday()]})"
+    except Exception:
+        return f"{d:02d}.{m:02d}.{y}"
 
 def export_notes_text(user_id: int) -> str:
     notes = get_notes(user_id)
@@ -127,8 +148,10 @@ def export_notes_text(user_id: int) -> str:
         return "Нет записей."
     lines = ["Экспорт заметок", "=================", ""]
     for note in notes:
+        dt = _parse_note_datetime(note[3])
+        dow = WEEKDAY_ABBR_RU[dt.weekday()]
         lines.append(f"ID: {note[0]}")
-        lines.append(f"Дата: {note[3]}")
+        lines.append(f"Дата: {dt.strftime('%d.%m.%Y %H:%M')} ({dow})")
         lines.append(f"Сила: {note[1]}")
         lines.append(f"Комментарий: {note[2]}")
         lines.append("")
@@ -151,8 +174,10 @@ def export_notes_filtered_text(user_id: int, scope: str, year: int | None = None
         return "Нет записей."
     lines = ["Экспорт заметок", f"Область: {scope} {year or ''} {month or ''}", "=================", ""]
     for note in filtered:
+        dt = _parse_note_datetime(note[3])
+        dow = WEEKDAY_ABBR_RU[dt.weekday()]
         lines.append(f"ID: {note[0]}")
-        lines.append(f"Дата: {note[3]}")
+        lines.append(f"Дата: {dt.strftime('%d.%m.%Y %H:%M')} ({dow})")
         lines.append(f"Сила: {note[1]}")
         lines.append(f"Комментарий: {note[2]}")
         lines.append("")
@@ -212,7 +237,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
     # Новая запись
     if data == "button_new_note":
         logging.debug(f"Нажата кнопка 'Новая запись' user_id={user_id}")
-        await callback.message.answer("Давайте добавим новую запись. \nНа сколько сильно болит голова по 10-балльной шкале?", reply_markup=keyboard_strength)
+        await callback.message.answer("Давайте добавим новую запись. \nНа сколько сильно болит голова по 10-балльной шкале?", reply_markup=keyboard_cancel)
         await state.set_state(AddNoteStates.waiting_for_strength)
         await callback.answer()
         return
@@ -287,7 +312,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         days_slice = slice_days(days, page)
         await state.update_data(current_day_page=page)
         text = format_notes_for_days(structure, year, month, days_slice)
-        header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
+        header = f"{month_title(month, year)} | Даты: {', '.join(fmt_date_dow(year, month, d) for d in days_slice)}\n\n"
         await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_pages))
         await callback.answer()
         return
@@ -304,7 +329,25 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         days_slice = slice_days(days, page)
         await state.update_data(current_day_page=page)
         text = format_notes_for_days(structure, year, month, days_slice)
-        header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
+        header = f"{month_title(month, year)} | Даты: {', '.join(fmt_date_dow(year, month, d) for d in days_slice)}\n\n"
+        await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_pages))
+        await callback.answer(); return
+
+    # Просмотр всего месяца
+    if data.startswith("view_month:"):
+        _, year_str, month_str = data.split(":")
+        year = int(year_str); month = int(month_str)
+        st = await state.get_data()
+        structure = st.get("view_structure")
+        if not structure or month not in structure.get(year, {}):
+            await callback.answer("Нет записей в этом месяце.")
+            return
+        days = available_days(structure, year, month)
+        text = format_notes_for_days(structure, year, month, days)
+        header = f"{month_title(month, year)} | Весь месяц\n\n"
+        page = 0
+        total_pages = total_day_pages(days)
+        days_slice = slice_days(days, page)
         await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_pages))
         await callback.answer(); return
 
@@ -343,7 +386,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         page = st.get("current_day_page", 0)
         # Формируем текст всех дней текущей страницы
         text = format_notes_for_day(structure, year, month, day)
-        header = f"{month_title(month, year)} | День: {day}\n\n"
+        header = f"{month_title(month, year)} | Дата: {fmt_date_dow(year, month, day)}\n\n"
         await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, [day], page, total_day_pages([day])))
         # Дополнительная клавиатура действий (экспорт / удаление / главное меню) - перегрузка интерфейса
         # await callback.message.answer("Действия:", reply_markup=kb_after_notes())
@@ -449,9 +492,9 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         structure, years = group_notes_structure(user_id)
         months = available_months(structure, year)
         if months:
-            await callback.message.answer("Выберите месяц или формат для всего года:", reply_markup=kb_export_months(year, months))
+            # await callback.message.answer("Выберите месяц или формат для всего года:", reply_markup=kb_export_months(year, months))
             # Также отдельно можно предложить форматы для года
-            await callback.message.answer("Формат для года целиком:", reply_markup=kb_export_format('year', year))
+            await callback.message.answer("Формат: ", reply_markup=kb_export_format('year', year))
         else:
             await callback.message.answer("Нет месяцев в этом году.")
         await callback.answer(); return
@@ -585,7 +628,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         total_pages = total_day_pages(days)
         days_slice = slice_days(days, page)
         await state.update_data(del_current_year=year, del_current_month=month, del_current_day_page=page)
-        kb = kb_days(year, month, days_slice, page, total_pages)
+        kb = kb_days(year, month, days_slice, page, total_pages, include_view_month=False)
         for row in kb.inline_keyboard:
             for btn in row:
                 if btn.callback_data and btn.callback_data.startswith("sel_day:"):
@@ -608,7 +651,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         page = max(0, min(page, total_pages-1))
         days_slice = slice_days(days, page)
         await state.update_data(del_current_day_page=page)
-        kb = kb_days(year, month, days_slice, page, total_pages)
+        kb = kb_days(year, month, days_slice, page, total_pages, include_view_month=False)
         for row in kb.inline_keyboard:
             for btn in row:
                 if btn.callback_data and btn.callback_data.startswith("sel_day:"):
@@ -653,10 +696,14 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         page = st.get("del_current_day_page", 0)
         days_slice = slice_days(days, page)
         text = format_notes_for_days(structure, year, month, days_slice)
-        header = f"[Удаление] {month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
+        header = f"[Удаление] {month_title(month, year)} | Даты: {', '.join(fmt_date_dow(year, month, d) for d in days_slice)}\n\n"
         await callback.message.edit_text(header + text + "\nОтправьте id записи, которую хотите удалить.")
         await state.set_state(DeleteNoteStates.waiting_for_id)
         await callback.answer(); return
+    
+    if data.startswith("button_cancel"):
+        await callback.message.answer("Действие отменено. Выберите действие.", reply_markup=keyboard_main)
+        await state.clear()
 
     await callback.answer()
 
@@ -711,18 +758,7 @@ async def process_get_note_id(message: types.Message, state: FSMContext):
     except (ValueError, TypeError):
         await message.reply("Это не похоже на число. Пожалуйста, введите число.")
 
-# Хэндлер, который удаляет запись в БД по id
-@dp.message(DeleteNoteStates.delete_note_by_id)
-async def process_delete_note(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    try:
-        note_id = data['note_id']
-        delete_note(note_id=note_id)
-        logging.debug(f"Удалена запись с id={note_id} user_id={message.from_user.id}")
-        logging.info("Удалена запись.")
-        await message.answer("Запись удалена")
-    except Exception as err:
-        logging.critical(f"Ошибка при удалении записи в БД: {err}")
+    
 
 async def main():
     # Создаем таблицу при запуске

@@ -7,21 +7,10 @@ keyboard_main = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Посмотреть записи", callback_data="button_list_notes")],
     [InlineKeyboardButton(text="Удалить запись", callback_data="button_delete_note")],
     [InlineKeyboardButton(text="Экспорт TXT", callback_data="export_txt"), InlineKeyboardButton(text="Экспорт PDF", callback_data="export_pdf")],
-    [InlineKeyboardButton(text="Фильтр экспорта", callback_data="export_open_filter")]
+    [InlineKeyboardButton(text="Экспорт по фильтру", callback_data="export_open_filter")]
 ])
 
-keyboard_list_notes = InlineKeyboardMarkup(inline_keyboard=[
-    [
-        InlineKeyboardButton(text="Удалить запись\n по номеру", callback_data="button_delete_note"),
-        InlineKeyboardButton(text="Главное меню", callback_data="button_main_menu")
-    ],
-    [
-        InlineKeyboardButton(text="Экспорт TXT", callback_data="export_txt"),
-        InlineKeyboardButton(text="Экспорт PDF", callback_data="export_pdf")
-    ]
-])
-
-keyboard_strength = InlineKeyboardMarkup(inline_keyboard=[
+keyboard_cancel = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Отмена", callback_data="button_cancel")]
 ])
 
@@ -47,12 +36,15 @@ def kb_year_months(year: int, months: list[int], has_prev: bool, has_next: bool)
     rows.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def kb_days(year: int, month: int, days_slice: list[int], page: int, total_pages: int) -> InlineKeyboardMarkup:
+def kb_days(year: int, month: int, days_slice: list[int], page: int, total_pages: int, include_view_month: bool = True) -> InlineKeyboardMarkup:
     rows = []
     # дни по 5 (в одну строку или перенести?) оставим в ряд
     day_buttons = [InlineKeyboardButton(text=str(d), callback_data=f"sel_day:{year}:{month}:{d}") for d in days_slice]
     # разбить на 5 максимум
     rows.append(day_buttons)
+    # Просмотр всех записей месяца
+    if include_view_month:
+        rows.append([InlineKeyboardButton(text="Весь месяц", callback_data=f"view_month:{year}:{month}")])
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="< Дни", callback_data=f"nav_days:{year}:{month}:{page-1}"))
@@ -72,9 +64,6 @@ def kb_days(year: int, month: int, days_slice: list[int], page: int, total_pages
         rows.append(page_nav)
     rows.append([InlineKeyboardButton(text="Главное меню", callback_data="button_main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-def kb_after_notes() -> InlineKeyboardMarkup:
-    return keyboard_list_notes
 
 # =================================================================
 
