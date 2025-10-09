@@ -21,6 +21,10 @@ keyboard_list_notes = InlineKeyboardMarkup(inline_keyboard=[
     ]
 ])
 
+keyboard_strength = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="Отмена", callback_data="button_cancel")]
+])
+
 # ================= Динамические клавиатуры =====================
 
 def kb_year_months(year: int, months: list[int], has_prev: bool, has_next: bool) -> InlineKeyboardMarkup:

@@ -13,6 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from keyboards import (
     keyboard_main,
     keyboard_list_notes,
+    keyboard_strength,
     kb_year_months,
     kb_days,
     kb_after_notes,
@@ -108,6 +109,16 @@ def format_notes_for_days(structure, year: int, month: int, days: list[int]) -> 
             parts.append(f"---{note[0]}---\nДата: {note[3]}\nСила боли: {note[1]}\nКомментарий: {note[2]}\n")
     return "".join(parts)
 
+def format_notes_for_day(structure, year: int, month: int, day: int) -> str:
+    """Формирует текст заметок для выбранного дня."""
+    if day not in structure.get(year, {}).get(month, {}):
+        return "Нет записей."
+    parts = []
+    notes = structure[year][month][day]
+    for note in notes:
+        parts.append(f"---{note[0]}---\nДата: {note[3]}\nСила боли: {note[1]}\nКомментарий: {note[2]}\n")
+    return "".join(parts)
+
 # ================= Конец вспомогательных функций ====================
 
 def export_notes_text(user_id: int) -> str:
@@ -201,7 +212,7 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
     # Новая запись
     if data == "button_new_note":
         logging.debug(f"Нажата кнопка 'Новая запись' user_id={user_id}")
-        await callback.message.answer("Давайте добавим новую запись. \nНа сколько сильно болит голова по 10-балльной шкале?")
+        await callback.message.answer("Давайте добавим новую запись. \nНа сколько сильно болит голова по 10-балльной шкале?", reply_markup=keyboard_strength)
         await state.set_state(AddNoteStates.waiting_for_strength)
         await callback.answer()
         return
@@ -319,21 +330,23 @@ async def handle_callback(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Выбор дня -> показываем записи выбранного дня (и соседних в той же странице?) требование: вывод записей (текущий формат) по выбранным дням страницы.
+    # Выбор дня -> показываем записи выбранного дня требование: вывод записей (текущий формат) по выбранным дням страницы.
     if data.startswith("sel_day:"):
         _, year_str, month_str, day_str = data.split(":")
         year = int(year_str); month = int(month_str)
         st = await state.get_data()
         structure = st.get("view_structure")
-        days = available_days(structure, year, month)
+        day = int(day_str)
+        if day not in structure.get(year, {}).get(month, {}):
+            await callback.answer("Нет записей в этот день.")
+            return
         page = st.get("current_day_page", 0)
-        days_slice = slice_days(days, page)
-        # Формируем текст всех дней текущей страницы (по ТЗ: выводить даты по неделям - интерпретируем как страницы по 5 дней)
-        text = format_notes_for_days(structure, year, month, days_slice)
-        header = f"{month_title(month, year)} | Дни {', '.join(str(d) for d in days_slice)}\n\n"
-        await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, days_slice, page, total_day_pages(days)))
-        # Дополнительная клавиатура действий (экспорт / удаление / главное меню)
-        await callback.message.answer("Действия:", reply_markup=kb_after_notes())
+        # Формируем текст всех дней текущей страницы
+        text = format_notes_for_day(structure, year, month, day)
+        header = f"{month_title(month, year)} | День: {day}\n\n"
+        await callback.message.edit_text(header + text, reply_markup=kb_days(year, month, [day], page, total_day_pages([day])))
+        # Дополнительная клавиатура действий (экспорт / удаление / главное меню) - перегрузка интерфейса
+        # await callback.message.answer("Действия:", reply_markup=kb_after_notes())
         await callback.answer()
         return
 
