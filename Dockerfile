@@ -9,6 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Environment variable for the Telegram API token
-ENV TELEGRAM_API_TOKEN="8488549531:AAEh0HmvLiNIG9o7qqxONup2lZPCwZmsN60"
+ENV TELEGRAM_API_TOKEN=""
 
 CMD ["python", "bot.py"]
